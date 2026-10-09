@@ -1,0 +1,1 @@
+"""SentimentScope AI package."""
