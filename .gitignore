@@ -1,0 +1,13 @@
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+*.pyc
+*.pyo
+*.joblib
+*.pkl
+.DS_Store
+.env
+.streamlit/
+models/*.joblib
+reports/*.md
