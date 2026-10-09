@@ -17,7 +17,7 @@ from sklearn.pipeline import Pipeline
 from src.preprocessing import clean_text
 
 ROOT_DIR = Path(__file__).resolve().parent
-DEFAULT_DATA_PATH = ROOT_DIR / "data" / "sample_reviews.csv"
+DEFAULT_DATA_PATH = ROOT_DIR / "data" / "product_quality_demo.csv"
 DEFAULT_MODEL_PATH = ROOT_DIR / "models" / "sentiment_model.joblib"
 DEFAULT_METRICS_PATH = ROOT_DIR / "reports" / "model_metrics.json"
 

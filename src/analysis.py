@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from src.business_metrics import calculate_return_rate, flag_products_for_review
+from src.issue_classifier import classify_issue
 from src.predict import predict_text, summarize_predictions
 from src.preprocessing import preprocess_text
 
@@ -24,6 +25,8 @@ def analyse_dataset(
     model: Any | None = None,
     date_column: str | None = None,
     source_column: str | None = None,
+    category_column: str | None = None,
+    product_column: str | None = None,
 ) -> dict:
     """Process a dataset by validating text rows and predicting sentiment."""
     if df is None or df.empty:
@@ -58,10 +61,16 @@ def analyse_dataset(
 
         try:
             prediction = predict_text(cleaned_text, model=model)
+            issue_category = classify_issue(cleaned_text)
             record = row.to_dict()
             record["text"] = cleaned_text
             record["predicted_sentiment"] = prediction["label"]
             record["confidence"] = prediction["confidence"]
+            record["issue_category"] = issue_category
+            if product_column and product_column in record:
+                record["product_name"] = record.get(product_column)
+            if category_column and category_column in record:
+                record["category"] = record.get(category_column)
             processed_rows.append(record)
             processed_count += 1
         except Exception:
@@ -72,8 +81,17 @@ def analyse_dataset(
         result_df[date_column] = pd.to_datetime(result_df[date_column], errors="coerce")
     if source_column and source_column in result_df.columns:
         result_df[source_column] = result_df[source_column].fillna("Unknown")
+    if category_column and category_column in result_df.columns:
+        result_df["category"] = result_df[category_column].fillna("Unspecified")
+    if product_column and product_column in result_df.columns:
+        result_df["product_name"] = result_df[product_column].fillna("Unknown product")
+    if "issue_category" not in result_df.columns:
+        result_df["issue_category"] = "Needs Review"
 
     summary = summarize_predictions(result_df)
+    summary["issue_counts"] = result_df["issue_category"].fillna("Needs Review").value_counts().to_dict()
+    summary["return_rate"] = calculate_return_rate(result_df)["percentage"] if {"units_sold", "units_returned"}.intersection(result_df.columns) else 0.0
+    summary["flags"] = flag_products_for_review(result_df)
 
     return {
         "processed": processed_count,

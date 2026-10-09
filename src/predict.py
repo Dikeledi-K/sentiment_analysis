@@ -21,7 +21,7 @@ def load_model(model_path: str | Path = DEFAULT_MODEL_PATH):
     if not path.exists():
         if path != DEFAULT_MODEL_PATH:
             raise FileNotFoundError(f"Model file not found at: {path}")
-        fallback_data = Path(__file__).resolve().parent.parent / "data" / "sample_reviews.csv"
+        fallback_data = Path(__file__).resolve().parent.parent / "data" / "product_quality_demo.csv"
         fallback_metrics = Path(__file__).resolve().parent.parent / "reports" / "model_metrics.json"
         train_and_evaluate_model(fallback_data, path, fallback_metrics)
     return joblib.load(path)
