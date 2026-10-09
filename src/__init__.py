@@ -1,1 +1,1 @@
-"""SentimentScope AI package."""
+"""Quality and returns intelligence application package."""

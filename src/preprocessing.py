@@ -1,4 +1,4 @@
-"""Text cleaning helpers for the SentimentScope AI project."""
+"""Text cleaning helpers for the quality and returns intelligence project."""
 
 from __future__ import annotations
 
