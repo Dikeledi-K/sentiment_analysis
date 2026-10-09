@@ -1,4 +1,4 @@
-"""Streamlit user interface for the SentimentScope AI dashboard."""
+"""Streamlit interface for the Quality & Returns Intelligence platform."""
 
 from __future__ import annotations
 
@@ -10,26 +10,29 @@ import plotly.express as px
 import streamlit as st
 
 from src.analysis import analyse_dataset
+from src.business_metrics import calculate_return_rate, flag_products_for_review
+from src.issue_classifier import classify_issue
 from src.predict import load_model, predict_text, summarize_predictions
 from src.preprocessing import preprocess_text
-from src.report_generator import generate_insights_report
+from src.report_generator import generate_quality_report
 from train_model import train_and_evaluate_model
 
 ROOT_DIR = Path(__file__).resolve().parent
+PLATFORM_NAME = "Quality & Returns Intelligence"
 MODEL_PATH = ROOT_DIR / "models" / "sentiment_model.joblib"
-SAMPLE_DATA_PATH = ROOT_DIR / "data" / "sample_reviews.csv"
+SAMPLE_DATA_PATH = ROOT_DIR / "data" / "product_quality_demo.csv"
 METRICS_PATH = ROOT_DIR / "reports" / "model_metrics.json"
 
 
 def ensure_model() -> object:
     """Ensure the locally trained model exists before serving the app."""
     if not MODEL_PATH.exists():
-        st.info("Training a fresh model from the sample dataset to get the app ready...")
+        st.info("Training a fresh model from the product-quality sample dataset...")
         train_and_evaluate_model(SAMPLE_DATA_PATH, MODEL_PATH, METRICS_PATH)
     return load_model(MODEL_PATH)
 
 
-st.set_page_config(page_title="SentimentScope AI", page_icon="📊", layout="wide")
+st.set_page_config(page_title=PLATFORM_NAME, page_icon="📊", layout="wide")
 
 st.markdown(
     """
@@ -90,6 +93,51 @@ st.markdown(
         div[data-testid="stSidebar"] {
             background: linear-gradient(180deg, #0d1726 0%, #0b1320 100%);
         }
+        div[data-testid="stRadio"] div[role="radiogroup"] {
+            display: flex;
+            flex-direction: row;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            padding: 0.55rem 0 0.8rem;
+            margin: 0 0 1.35rem;
+            border-bottom: 1px solid rgba(146, 168, 196, 0.2);
+        }
+        div[data-testid="stRadio"] div[role="radiogroup"] label {
+            gap: 0;
+            padding: 0.55rem 0.9rem;
+            border: 1px solid rgba(146, 168, 196, 0.14);
+            border-radius: 9px;
+            background: rgba(17, 25, 38, 0.68);
+            transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+        }
+        div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) {
+            background: rgba(58, 115, 186, 0.24);
+            border-color: rgba(103, 169, 255, 0.65);
+            box-shadow: inset 0 -2px 0 #68a9ff;
+        }
+        div[data-testid="stRadio"] div[role="radiogroup"] label:hover {
+            background: rgba(71, 101, 143, 0.22);
+            border-color: rgba(146, 185, 239, 0.4);
+        }
+        div[data-testid="stRadio"] div[role="radiogroup"] label > div:first-child > div {
+            display: none;
+        }
+        div[data-testid="stRadio"] div[role="radiogroup"] label:has(input:focus-visible) {
+            outline: 2px solid #a5cbff;
+            outline-offset: 2px;
+        }
+        div[data-testid="stSidebar"] [data-testid="stMetric"] {
+            padding: 0.7rem 0;
+            border-top: 1px solid rgba(146, 168, 196, 0.14);
+            border-bottom: 1px solid rgba(146, 168, 196, 0.14);
+        }
+        .workspace-kicker {
+            color: #8ca9d5;
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
         .stButton > button {
             background: linear-gradient(180deg, #4f8ef7 0%, #2d6fe6 100%);
             color: white;
@@ -125,8 +173,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown("<div class='section-title'>SentimentScope AI</div>", unsafe_allow_html=True)
-st.caption("Sentiment Analysis and Customer Insights Dashboard")
+st.markdown(f"<div class='section-title'>{PLATFORM_NAME}</div>", unsafe_allow_html=True)
+st.caption("Product feedback, defect trends, and return risk")
 
 model = ensure_model()
 
@@ -142,26 +190,67 @@ def reset_analysis():
     st.session_state.analysis_meta = {}
 
 
-with st.sidebar:
-    st.title("Navigation")
-    st.caption("SentimentScope AI")
-    page = st.radio(
-        "Go to",
-        [
-            "Home / Overview",
-            "Analyse Single Text",
-            "Upload and Analyse Dataset",
-            "Sentiment Dashboard",
-            "Model Performance",
-            "Insights Report",
-            "About and Responsible AI",
-        ],
+def analyze_and_store(df: pd.DataFrame, text_column: str, product_column: str | None = None,
+                      category_column: str | None = None, date_column: str | None = None) -> dict:
+    """Analyze a dataset and retain the result for the dashboard pages."""
+    analysis = analyse_dataset(
+        df,
+        text_column=text_column,
+        model=model,
+        date_column=date_column,
+        category_column=category_column,
+        product_column=product_column,
     )
+    st.session_state.analysis_df = analysis["dataframe"]
+    st.session_state.analysis_meta = {
+        "text_column": text_column,
+        "product_column": product_column,
+        "category_column": category_column,
+        "date_column": date_column,
+        "processed": analysis["processed"],
+        "skipped": analysis["skipped"],
+        "invalid": analysis["invalid"],
+    }
+    return analysis
+
+
+with st.sidebar:
+    st.markdown("<div class='workspace-kicker'>Workspace</div>", unsafe_allow_html=True)
+    st.markdown("### Quality operations")
+    st.caption("Analysis workspace")
     st.markdown("---")
-    st.caption("Synthetic demo data only. Model results should be reviewed by a human analyst.")
+    st.metric("Records analyzed", f"{len(st.session_state.analysis_df):,}")
+    st.caption("Synthetic demo data only. Validate quality signals with a human analyst.")
+
+navigation_options = [
+    "Home / Overview",
+    "Analyse Single Text",
+    "Upload and Analyse Dataset",
+    "Quality Dashboard",
+    "Model Performance",
+    "Insights Report",
+    "About and Responsible AI",
+]
+navigation_labels = {
+    "Home / Overview": "⌂  Overview",
+    "Analyse Single Text": "✳  Feedback",
+    "Upload and Analyse Dataset": "▦  Dataset",
+    "Quality Dashboard": "◈  Quality",
+    "Model Performance": "▤  Model",
+    "Insights Report": "▧  Reports",
+    "About and Responsible AI": "ⓘ  About",
+}
+page = st.radio(
+    "Workspace navigation",
+    navigation_options,
+    format_func=lambda option: navigation_labels[option],
+    horizontal=True,
+    label_visibility="collapsed",
+    key="workspace_navigation",
+)
 
 if page == "Home / Overview":
-    st.markdown("<div class='section-subtitle'>A clear, practical ML workflow for analysing customer sentiment.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-subtitle'>An operations view of customer-reported defects, returns, and product-quality signals.</div>", unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -169,15 +258,15 @@ if page == "Home / Overview":
     with col2:
         st.markdown("<div class='metric-card'><div class='small-label'>Classes</div><div style='font-size:1.5rem;font-weight:700;'>Positive / Neutral / Negative</div></div>", unsafe_allow_html=True)
     with col3:
-        st.markdown("<div class='metric-card'><div class='small-label'>Purpose</div><div style='font-size:1.5rem;font-weight:700;'>Customer insight generation</div></div>", unsafe_allow_html=True)
+        st.markdown("<div class='metric-card'><div class='small-label'>Purpose</div><div style='font-size:1.5rem;font-weight:700;'>Quality & returns intelligence</div></div>", unsafe_allow_html=True)
 
     st.markdown("<div class='panel'>", unsafe_allow_html=True)
     st.markdown("<div class='section-title' style='font-size:1.2rem;'>Workflow</div>", unsafe_allow_html=True)
     steps = [
-        "Enter a review or upload a CSV dataset.",
-        "Clean and standardise the text.",
-        "Predict sentiment using the trained model.",
-        "Review dashboard metrics and downloadable outputs.",
+        "Load the demo or upload customer and return records.",
+        "Classify feedback sentiment and recurring issue themes.",
+        "Compare defect signals by product and category.",
+        "Track reported returns and download an investigation report.",
     ]
     cols = st.columns(2)
     for idx, step in enumerate(steps):
@@ -192,9 +281,9 @@ elif page == "Analyse Single Text":
     text_input = st.text_area(
         "Enter a product review, customer comment, or message:",
         height=160,
-        placeholder="Example: I love this product and the customer service was excellent.",
+                placeholder="Example: The battery stopped charging after two days and the return process was confusing.",
     )
-    if st.button("Analyse Sentiment"):
+    if st.button("Analyse feedback"):
         if not preprocess_text(text_input):
             st.warning("Please enter a valid review before analysing.")
         else:
@@ -202,8 +291,13 @@ elif page == "Analyse Single Text":
                 result = predict_text(text_input, model=model)
                 label = result["label"].title()
                 confidence = result["confidence"]
-                st.success(f"Predicted sentiment: {label}")
-                st.metric("Confidence score", f"{confidence:.2f}")
+                issue = classify_issue(text_input)
+                result_col, issue_col = st.columns(2)
+                with result_col:
+                    st.metric("Predicted sentiment", label)
+                    st.caption(f"Model confidence: {confidence:.2f}")
+                with issue_col:
+                    st.metric("Likely issue category", issue)
                 st.info(
                     "This prediction is based on patterns learned from labelled training data and should be treated as an informed signal rather than a fact about a person's intention."
                 )
@@ -213,7 +307,22 @@ elif page == "Analyse Single Text":
 
 elif page == "Upload and Analyse Dataset":
     st.markdown("<div class='panel'>", unsafe_allow_html=True)
-    st.markdown("<div class='section-title' style='font-size:1.2rem;'>Upload and analyse a CSV dataset</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title' style='font-size:1.2rem;'>Dataset Explorer</div>", unsafe_allow_html=True)
+    st.caption("Start with the built-in demonstration data, or upload a CSV with customer feedback and optional product, date, and return fields.")
+    if st.button("Analyze built-in demo dataset"):
+        try:
+            demo_df = pd.read_csv(SAMPLE_DATA_PATH)
+            analysis = analyze_and_store(
+                demo_df,
+                text_column="text",
+                product_column="product_name",
+                category_column="category",
+                date_column="date",
+            )
+            st.success(f"Demo analysis complete: {analysis['processed']} records processed.")
+        except Exception as exc:
+            st.error(f"The demo dataset could not be analysed: {exc}")
+
     uploaded_file = st.file_uploader("Choose a CSV file", type=["csv"])
     if uploaded_file is not None:
         try:
@@ -223,24 +332,23 @@ elif page == "Upload and Analyse Dataset":
 
             columns = list(df.columns)
             text_column = st.selectbox("Select the text column", columns)
-            date_column = st.selectbox("Select an optional date column", ["None"] + columns)
-            source_column = st.selectbox("Select an optional source/category column", ["None"] + columns)
+            product_column = st.selectbox("Select product column (optional)", ["None"] + columns)
+            category_column = st.selectbox("Select category column (optional)", ["None"] + columns)
+            date_column = st.selectbox("Select date column (optional)", ["None"] + columns)
 
             if st.button("Run analysis"):
                 try:
                     date_value = None if date_column == "None" else date_column
-                    source_value = None if source_column == "None" else source_column
-                    analysis = analyse_dataset(df, text_column=text_column, model=model, date_column=date_value, source_column=source_value)
+                    product_value = None if product_column == "None" else product_column
+                    category_value = None if category_column == "None" else category_column
+                    analysis = analyze_and_store(
+                        df,
+                        text_column,
+                        product_column=product_value,
+                        category_column=category_value,
+                        date_column=date_value,
+                    )
                     result_df = analysis["dataframe"]
-                    st.session_state.analysis_df = result_df
-                    st.session_state.analysis_meta = {
-                        "text_column": text_column,
-                        "date_column": date_value,
-                        "source_column": source_value,
-                        "processed": analysis["processed"],
-                        "skipped": analysis["skipped"],
-                        "invalid": analysis["invalid"],
-                    }
 
                     st.success(
                         f"Analysis complete: {analysis['processed']} records processed, {analysis['skipped']} skipped, {analysis['invalid']} invalid."
@@ -258,81 +366,116 @@ elif page == "Upload and Analyse Dataset":
             st.error(f"The CSV file could not be read: {exc}")
     st.markdown("</div>", unsafe_allow_html=True)
 
-elif page == "Sentiment Dashboard":
+elif page == "Quality Dashboard":
     st.markdown("<div class='panel'>", unsafe_allow_html=True)
-    st.markdown("<div class='section-title' style='font-size:1.2rem;'>Sentiment dashboard</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title' style='font-size:1.2rem;'>Operations overview</div>", unsafe_allow_html=True)
     if st.session_state.analysis_df.empty:
-        st.info("Upload a dataset and run analysis to populate the dashboard.")
+        st.info("Analyze the built-in demo dataset or upload your own data in Dataset Explorer to populate the dashboard.")
     else:
         result_df = st.session_state.analysis_df.copy()
         summary = summarize_predictions(result_df)
+        st.caption("Executive summary · based on the currently analysed records")
 
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total analysed", summary["total"])
-        with col2:
-            st.metric("Positive", summary["positive"])
-        with col3:
-            st.metric("Negative", summary["negative"])
-        with col4:
-            st.metric("Neutral", summary["neutral"])
+        negative_share = summary["negative_pct"]
+        if "return_status" in result_df.columns:
+            status = result_df["return_status"].fillna("").astype(str).str.strip().str.lower()
+            returned_cases = int(status.isin(["returned", "refunded", "return complete"]).sum())
+        else:
+            returned_cases = int(pd.to_numeric(result_df.get("units_returned", pd.Series(dtype=float)), errors="coerce").fillna(0).sum())
 
-        sentiment_counts = result_df["predicted_sentiment"].fillna("neutral").str.lower().value_counts().reindex(["positive", "negative", "neutral"], fill_value=0)
-        bar_chart = px.bar(
-            sentiment_counts.reset_index().rename(columns={"index": "Sentiment", "predicted_sentiment": "Count"}),
-            x="Sentiment",
-            y="Count",
-            color="Sentiment",
-            title="Sentiment distribution",
-            color_discrete_map={"positive": "#2ecc71", "negative": "#e74c3c", "neutral": "#f39c12"},
-        )
-        pie_chart = px.pie(
-            sentiment_counts.reset_index().rename(columns={"index": "Sentiment", "predicted_sentiment": "Count"}),
-            values="Count",
-            names="Sentiment",
-            title="Sentiment share",
-            color="Sentiment",
-            color_discrete_map={"positive": "#2ecc71", "negative": "#e74c3c", "neutral": "#f39c12"},
-        )
+        if {"units_sold", "units_returned"}.issubset(result_df.columns):
+            volume_data = result_df.drop_duplicates("product_name") if "product_name" in result_df.columns else result_df
+            return_metrics = calculate_return_rate(volume_data)
+            return_rate_value = return_metrics["percentage"]
+            return_rate_label = f"{return_rate_value:.2f}%"
+            return_rate_help = "Distinct product totals: returned units divided by sold units"
+        else:
+            return_rate_value = None
+            return_rate_label = "Not provided"
+            return_rate_help = "Add units_sold and units_returned columns to calculate a rate"
 
-        chart_left, chart_right = st.columns(2)
-        with chart_left:
-            st.plotly_chart(bar_chart, use_container_width=True)
-        with chart_right:
-            st.plotly_chart(pie_chart, use_container_width=True)
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        kpi1.metric("Feedback analysed", f"{summary['total']:,}")
+        kpi2.metric("Negative feedback", f"{negative_share:.1f}%", help="Share of analysed comments predicted as negative")
+        kpi3.metric("Reported return cases", f"{returned_cases:,}", help="Rows marked returned/refunded; not a unit return rate")
+        kpi4.metric("Unit return rate", return_rate_label, help=return_rate_help)
 
-        filter_values = st.multiselect("Filter sentiment", ["positive", "negative", "neutral"], default=["positive", "negative", "neutral"])
-        search_term = st.text_input("Search comments")
-        filtered_df = result_df[result_df["predicted_sentiment"].str.lower().isin(filter_values)].copy()
-        if search_term:
-            filtered_df = filtered_df[filtered_df["text"].str.lower().str.contains(search_term.lower(), na=False)]
+        st.markdown("### Quality signals")
+        left, right = st.columns([1.2, 1])
+        with left:
+            if {"product_name", "issue_category"}.issubset(result_df.columns):
+                issue_counts = result_df[
+                    ~result_df["issue_category"].fillna("Needs Review").isin(["Other", "Needs Review"])
+                ]
+                if issue_counts.empty:
+                    st.info("No classified defect signals are available in these records.")
+                else:
+                    pivot = issue_counts.pivot_table(
+                        index="issue_category",
+                        columns="product_name",
+                        values="text",
+                        aggfunc="count",
+                        fill_value=0,
+                    )
+                    heatmap = px.imshow(
+                        pivot,
+                        labels={"x": "Product", "y": "Issue category", "color": "Reports"},
+                        color_continuous_scale=["#172536", "#317a86", "#f0b45b"],
+                        aspect="auto",
+                        title="Defect reports by product",
+                    )
+                    heatmap.update_layout(margin={"t": 55, "b": 20}, coloraxis_colorbar_title="Reports")
+                    st.plotly_chart(heatmap, use_container_width=True)
+            else:
+                st.info("Select product and category columns when analysing data to show a defect heatmap.")
 
-        st.dataframe(filtered_df, use_container_width=True)
+        with right:
+            if "date" in result_df.columns:
+                trend = result_df.copy()
+                trend["date"] = pd.to_datetime(trend["date"], errors="coerce")
+                if "return_status" in trend.columns:
+                    status = trend["return_status"].fillna("").astype(str).str.strip().str.lower()
+                    trend = trend[status.isin(["returned", "refunded", "return complete"])]
+                    trend_label = "Reported return cases"
+                else:
+                    trend_label = "Dated feedback records"
+                trend = trend.dropna(subset=["date"])
+                if trend.empty:
+                    st.info("No dated return records are available for a monthly trend.")
+                else:
+                    trend["month"] = trend["date"].dt.to_period("M").dt.to_timestamp()
+                    trend_counts = trend.groupby("month").size().reset_index(name="records")
+                    trend_chart = px.line(
+                        trend_counts,
+                        x="month",
+                        y="records",
+                        markers=True,
+                        title=f"Monthly {trend_label.lower()}",
+                        labels={"month": "Month", "records": trend_label},
+                    )
+                    trend_chart.update_traces(line_color="#f0b45b", line_width=3)
+                    trend_chart.update_layout(margin={"t": 55, "b": 20})
+                    st.plotly_chart(trend_chart, use_container_width=True)
+            else:
+                st.info("Select a date column when analysing data to show a returns trend.")
+
+        st.markdown("### Products to investigate")
+        flagged = flag_products_for_review(result_df)
+        if flagged:
+            st.dataframe(pd.DataFrame(flagged), use_container_width=True, hide_index=True)
+        else:
+            st.success("No products currently meet the review thresholds in this dataset.")
+
+        with st.expander("Explore analysed feedback"):
+            filter_values = st.multiselect("Sentiment", ["positive", "negative", "neutral"], default=["positive", "negative", "neutral"])
+            search_term = st.text_input("Search feedback")
+            filtered_df = result_df[result_df["predicted_sentiment"].str.lower().isin(filter_values)].copy()
+            if search_term:
+                filtered_df = filtered_df[filtered_df["text"].str.lower().str.contains(search_term.lower(), na=False)]
+            st.dataframe(filtered_df, use_container_width=True)
 
         if st.button("Clear analysis"):
             reset_analysis()
-
-        if "date" in result_df.columns:
-            try:
-                trend = pd.to_datetime(result_df["date"], errors="coerce").dropna().to_frame(name="date")
-                trend["predicted_sentiment"] = result_df.loc[trend.index, "predicted_sentiment"]
-                trend_group = (
-                    trend.groupby([trend["date"].dt.to_period("M").astype(str), "predicted_sentiment"])
-                    .size()
-                    .reset_index(name="count")
-                )
-                trend_group = trend_group.rename(columns={"date": "Month"})
-                trend_chart = px.line(trend_group, x="Month", y="count", color="predicted_sentiment", title="Sentiment trends over time")
-                st.plotly_chart(trend_chart, use_container_width=True)
-            except Exception:
-                st.info("No valid date information was available for trend analysis.")
-        else:
-            st.info("No valid date information was available for trend analysis.")
-
-        if "source" in result_df.columns:
-            source_breakdown = result_df.groupby("source")["predicted_sentiment"].value_counts().unstack(fill_value=0)
-            st.write("### Sentiment by source")
-            st.dataframe(source_breakdown, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 elif page == "Model Performance":
@@ -367,23 +510,22 @@ elif page == "Insights Report":
     if st.session_state.analysis_df.empty:
         st.info("Generate a dataset analysis before producing a report.")
     else:
-        report = generate_insights_report(st.session_state.analysis_df)
+        report = generate_quality_report(st.session_state.analysis_df)
         st.text_area("Generated markdown report", report, height=450)
         st.download_button(
             label="Download insights report as Markdown",
             data=report,
-            file_name="sentimentscope_insights_report.md",
+            file_name="product_quality_insights_report.md",
             mime="text/markdown",
         )
     st.markdown("</div>", unsafe_allow_html=True)
 
 elif page == "About and Responsible AI":
     st.markdown("<div class='panel'>", unsafe_allow_html=True)
-    st.markdown("<div class='section-title' style='font-size:1.2rem;'>About SentimentScope AI</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title' style='font-size:1.2rem;'>About the Product Quality Platform</div>", unsafe_allow_html=True)
     st.markdown(
         """
-        Sentiment analysis is a text classification task that tries to determine whether a message is mostly positive, negative, or neutral.
-        The model learns patterns from labelled examples, such as words and phrases that often appear in positive or negative comments.
+        This platform combines text sentiment classification with transparent keyword-based issue categories and operational return metrics. It helps teams organise customer quality signals for investigation.
         """
     )
 
@@ -391,8 +533,9 @@ elif page == "About and Responsible AI":
     st.markdown(
         """
         - Predictions are not perfect and can be wrong when sarcasm, slang, spelling errors, mixed emotions, or cultural language differences are present.
-        - A sentiment model estimates the likely tone in a text; it does not prove a person's intentions or feelings with certainty.
-        - Human review remains important before making business or customer-service decisions based on the output.
+        - Sentiment and keyword categories are estimates, not proof of product fault or customer intent.
+        - Human review remains important before warranty, returns, supplier, or manufacturing decisions.
+        - Monthly return charts count dated records and do not represent a unit return rate.
         - The quality and balance of the training data strongly influence performance. Poor or biased training data can lead to weak results.
         """
     )
