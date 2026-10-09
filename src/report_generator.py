@@ -1,4 +1,4 @@
-"""Generate a markdown insights report from analysed review data."""
+"""Generate markdown business insights reports from product quality data."""
 
 from __future__ import annotations
 
@@ -7,31 +7,16 @@ from datetime import datetime
 import pandas as pd
 
 
-def _percentage(part: int, total: int) -> float:
+def _safe_pct(part: int, total: int) -> float:
     if total == 0:
         return 0.0
     return round((part / total) * 100, 2)
 
 
-def _dominant_sentiment(df: pd.DataFrame) -> str:
-    if df.empty or "predicted_sentiment" not in df.columns:
-        return "No sentiment data available"
-    counts = df["predicted_sentiment"].fillna("neutral").str.lower().value_counts()
-    dominant = counts.idxmax() if not counts.empty else "neutral"
-    return dominant.title()
-
-
-def _representative_comments(df: pd.DataFrame, label: str, limit: int = 2) -> list[str]:
-    if df.empty or "predicted_sentiment" not in df.columns or "text" not in df.columns:
-        return []
-    matches = df[df["predicted_sentiment"].str.lower() == label.lower()]
-    return matches["text"].dropna().astype(str).head(limit).tolist()
-
-
-def generate_insights_report(df: pd.DataFrame, analysis_date: str | None = None) -> str:
-    """Construct a markdown report with actual observations from the dataset."""
+def generate_quality_report(df: pd.DataFrame, analysis_date: str | None = None) -> str:
+    """Generate a product quality insights report from actual analysis results."""
     if df is None or df.empty:
-        return "# SentimentScope AI Insights Report\n\nNo analysed data was available to generate a report."
+        return "# Product Quality Insights Report\n\nNo analysed data was available to generate a report."
 
     if analysis_date is None:
         analysis_date = datetime.now().strftime("%Y-%m-%d")
@@ -42,96 +27,118 @@ def generate_insights_report(df: pd.DataFrame, analysis_date: str | None = None)
     negative = int(sentiment_counts.get("negative", 0))
     neutral = int(sentiment_counts.get("neutral", 0))
 
-    dominant = _dominant_sentiment(df)
-    positive_comments = _representative_comments(df, "positive")
-    negative_comments = _representative_comments(df, "negative")
-    neutral_comments = _representative_comments(df, "neutral")
+    issue_counts = df["issue_category"].fillna("Needs Review").astype(str).value_counts()
+    issue_top = issue_counts.head(5).to_dict()
 
-    negative_keywords = [
-        "bad",
-        "terrible",
-        "slow",
-        "poor",
-        "expensive",
-        "late",
-        "broken",
-        "worst",
-        "disappointed",
-        "delay",
-        "issue",
-    ]
+    if "product_name" in df.columns:
+        product_negative = (
+            df.groupby("product_name")["predicted_sentiment"]
+            .apply(lambda s: (s.fillna("neutral").str.lower() == "negative").mean() * 100)
+            .sort_values(ascending=False)
+            .head(5)
+        )
+    else:
+        product_negative = pd.Series(dtype=float)
 
-    negative_theme_hits = []
-    for comment in df[df["predicted_sentiment"].str.lower() == "negative"]["text"].dropna().astype(str):
-        lowered = comment.lower()
-        hits = [word for word in negative_keywords if word in lowered]
-        if hits:
-            negative_theme_hits.append(f"- {comment} (keywords: {', '.join(sorted(set(hits))[:3])})")
+    if {"units_sold", "units_returned"}.intersection(df.columns):
+        sold = pd.to_numeric(df.get("units_sold", pd.Series(0, index=df.index)), errors="coerce").fillna(0)
+        returned = pd.to_numeric(df.get("units_returned", pd.Series(0, index=df.index)), errors="coerce").fillna(0)
+        rate = (returned.sum() / sold.sum()) * 100 if sold.sum() else 0.0
+    else:
+        rate = 0.0
 
-    positive_keywords = ["love", "great", "excellent", "easy", "perfect", "fast", "friendly", "quality", "helpful"]
-    positive_theme_hits = []
-    for comment in df[df["predicted_sentiment"].str.lower() == "positive"]["text"].dropna().astype(str):
-        lowered = comment.lower()
-        hits = [word for word in positive_keywords if word in lowered]
-        if hits:
-            positive_theme_hits.append(f"- {comment} (keywords: {', '.join(sorted(set(hits))[:3])})")
+    negative_comments = df[df["predicted_sentiment"].fillna("neutral").str.lower() == "negative"]["text"].dropna().astype(str).head(3).tolist()
+    positive_comments = df[df["predicted_sentiment"].fillna("neutral").str.lower() == "positive"]["text"].dropna().astype(str).head(3).tolist()
 
-    report = f"# SentimentScope AI Insights Report\n\n"
+    report = "# Product Quality and Returns Intelligence Report\n\n"
     report += f"- Analysis date: {analysis_date}\n"
-    report += f"- Dataset size: {total} reviewed records\n"
-    report += f"- Successfully analysed: {total}\n"
-    report += f"- Positive: {positive} ({_percentage(positive, total)}%)\n"
-    report += f"- Negative: {negative} ({_percentage(negative, total)}%)\n"
-    report += f"- Neutral: {neutral} ({_percentage(neutral, total)}%)\n"
-    report += f"- Dominant sentiment: {dominant}\n\n"
+    report += f"- Total records analysed: {total}\n"
+    report += f"- Positive: {positive} ({_safe_pct(positive, total)}%)\n"
+    report += f"- Negative: {negative} ({_safe_pct(negative, total)}%)\n"
+    report += f"- Neutral: {neutral} ({_safe_pct(neutral, total)}%)\n"
+    report += f"- Return rate: {rate:.2f}% (returned units / sold units)\n\n"
 
-    report += "## Key observations\n\n"
-    report += f"- The dominant sentiment in this dataset is {dominant.lower()}.\n"
-    report += f"- Positive comments account for {_percentage(positive, total)}% of the analysed records.\n"
-    report += f"- Negative comments account for {_percentage(negative, total)}% of the analysed records.\n"
-    report += "- These observations are based on model predictions applied to the dataset and should be reviewed alongside human judgement.\n\n"
+    report += "## Issue overview\n"
+    for issue_name, count in issue_top.items():
+        report += f"- {issue_name}: {count} records\n"
+    report += "\n"
 
-    report += "## Representative comments\n\n"
+    report += "## Product categories with highest negative feedback\n"
+    if "category" in df.columns:
+        category_negative = (
+            df.groupby("category")["predicted_sentiment"]
+            .apply(lambda s: (s.fillna("neutral").str.lower() == "negative").mean() * 100)
+            .sort_values(ascending=False)
+            .head(5)
+        )
+        for category, pct in category_negative.items():
+            report += f"- {category}: {pct:.2f}% negative sentiment\n"
+    else:
+        report += "- No category column was available for this breakdown.\n"
+    report += "\n"
+
+    report += "## Representative feedback\n\n"
     report += "### Positive\n"
-    for comment in positive_comments or ["No positive comments were found."]:
+    for comment in positive_comments or ["No positive comments were available."]:
         report += f"- {comment}\n"
     report += "\n### Negative\n"
-    for comment in negative_comments or ["No negative comments were found."]:
+    for comment in negative_comments or ["No negative comments were available."]:
         report += f"- {comment}\n"
-    report += "\n### Neutral\n"
-    for comment in neutral_comments or ["No neutral comments were found."]:
-        report += f"- {comment}\n\n"
-
-    report += "## Potential customer experience concerns\n\n"
-    if negative_theme_hits:
-        for item in negative_theme_hits[:5]:
-            report += f"{item}\n"
-    else:
-        report += "- No clear negative keyword themes were identified in the analysed negative comments.\n"
     report += "\n"
 
-    report += "## Positive feedback themes\n\n"
-    if positive_theme_hits:
-        for item in positive_theme_hits[:5]:
-            report += f"{item}\n"
+    report += "## Suggested quality investigation areas\n\n"
+    if not product_negative.empty:
+        for product, pct in product_negative.items():
+            report += f"- {product}: {pct:.2f}% negative sentiment in the sampled records; review for recurring quality signals.\n"
     else:
-        report += "- No clear positive keyword themes were identified in the analysed positive comments.\n"
-    report += "\n"
+        report += "- No clear product-level negative pattern was identified in the provided data.\n"
+    report += "- Investigate repeated issue categories reported by customers before making a manufacturing conclusion.\n"
+    report += "- Validate negative observations with a human analyst and supporting operational data.\n\n"
 
-    report += "## Data quality limitations\n\n"
-    report += "- The sample dataset is synthetic demonstration data and is not a real customer dataset.\n"
-    report += "- Empty values, duplicate rows, or malformed records may reduce the number of usable inputs.\n"
-    report += "- A small or imbalanced dataset can limit how well the model generalises beyond the provided examples.\n\n"
+    report += "## Data limitations\n\n"
+    report += "- This project uses demonstration data or locally uploaded records and should not be treated as a live operational dataset.\n"
+    report += "- Keyword-based issue classification is a transparent baseline and may miss subtle or mixed problems.\n"
+    report += "- Sentiment predictions are supportive signals, not proof of product fault or customer intent.\n"
+    report += "- Personal identifiers should be removed before uploading files.\n\n"
 
+    return report
+
+
+def generate_insights_report(df: pd.DataFrame, analysis_date: str | None = None) -> str:
+    """Backward-compatible summary report expected by the existing tests and app."""
+    if df is None or df.empty:
+        return "# Quality & Returns Intelligence Report\n\nNo analysed data was available to generate a report."
+
+    if analysis_date is None:
+        analysis_date = datetime.now().strftime("%Y-%m-%d")
+
+    total = len(df)
+    sentiment_counts = df["predicted_sentiment"].fillna("neutral").str.lower().value_counts()
+    positive = int(sentiment_counts.get("positive", 0))
+    negative = int(sentiment_counts.get("negative", 0))
+    neutral = int(sentiment_counts.get("neutral", 0))
+
+    report = "# Quality & Returns Intelligence Report\n\n"
+    report += f"- Analysis date: {analysis_date}\n"
+    report += f"- Dataset size: {total} reviewed records\n"
+    report += f"- Positive: {positive} ({_safe_pct(positive, total)}%)\n"
+    report += f"- Negative: {negative} ({_safe_pct(negative, total)}%)\n"
+    report += f"- Neutral: {neutral} ({_safe_pct(neutral, total)}%)\n\n"
+    report += "## Key observations\n\n"
+    report += "- The dataset has been classified into positive, negative, and neutral sentiment groups.\n"
+    report += "- The highest-volume issue category should be reviewed by operations and quality teams.\n"
+    report += "- Model outputs are supportive signals and should be checked against real-world context.\n\n"
+    report += "## Representative comments\n\n"
+    if "text" in df.columns:
+        for label in ["positive", "negative", "neutral"]:
+            matches = df[df["predicted_sentiment"].fillna("neutral").str.lower() == label]["text"].dropna().astype(str).head(2)
+            report += f"### {label.title()}\n"
+            for comment in matches.tolist() or ["No comments available."]:
+                report += f"- {comment}\n"
+            report += "\n"
     report += "## Model limitations\n\n"
-    report += "- This is a classic text classification model based on TF-IDF features and logistic regression.\n"
-    report += "- The model may misclassify sarcasm, slang, spelling errors, mixed sentiment, or short statements.\n"
-    report += "- Predictions should be treated as supportive signals, not as definitive statements about a person's intent or customer sentiment.\n\n"
-
-    report += "## Recommended next steps\n\n"
-    report += "- Review the most negative comments with a human analyst before making product or service decisions.\n"
-    report += "- Collect more real labelled comments to improve model quality and reduce bias.\n"
-    report += "- Expand the dataset to include more categories, time periods, and customer sources.\n"
-    report += "- Re-train the model after adding more labelled examples or a larger public dataset.\n\n"
+    report += "- The algorithm may misclassify sarcasm, slang, mixed sentiment, or short, incomplete messages.\n"
+    report += "- Human judgement is still needed before making product decisions or customer escalations.\n"
+    report += "- Dataset balance and quality directly affect model reliability.\n"
 
     return report

@@ -11,7 +11,7 @@ def test_generate_insights_report_contains_sections():
         }
     )
     report = generate_insights_report(df)
-    assert "# SentimentScope AI Insights Report" in report
+    assert "# Quality & Returns Intelligence Report" in report
     assert "Positive" in report
     assert "Negative" in report
     assert "Model limitations" in report
