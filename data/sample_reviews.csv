@@ -1,0 +1,21 @@
+text,sentiment,date,source,category
+"I love this product. It works perfectly and the battery lasts all day.",positive,2024-01-02,website,product_quality
+"The service was terrible and I am very disappointed with the support team.",negative,2024-01-03,customer_service,customer_service
+"The product is okay, nothing special, but it does the job.",neutral,2024-01-04,retail,product_quality
+"Delivery was fast and the packaging was excellent.",positive,2024-01-05,app,delivery
+"I paid too much and the quality was poor.",negative,2024-01-06,website,pricing
+"The shopping experience was simple and easy to use.",positive,2024-01-07,store,shopping_experience
+"The product did not arrive on time and the tracking was confusing.",negative,2024-01-09,website,delivery
+"It is a decent item, not great but not bad either.",neutral,2024-01-10,retail,product_quality
+"The staff were friendly and resolved my issue quickly.",positive,2024-01-11,phone,customer_service
+"I expected more for the price and the product felt flimsy.",negative,2024-01-12,website,pricing
+"The interface is fine and the checkout process was smooth.",neutral,2024-01-13,app,shopping_experience
+"This is the best purchase I have made this year.",positive,2024-01-14,website,product_quality
+"The app kept crashing and I could not complete my order.",negative,2024-01-15,app,shopping_experience
+"It is average quality and the features are moderate.",neutral,2024-01-16,retail,product_quality
+"Customer support answered my questions quickly and politely.",positive,2024-01-17,chat,customer_service
+"I am disappointed with the shipping delays and poor communication.",negative,2024-01-18,website,delivery
+"The product is fine for everyday use and fairly priced.",neutral,2024-01-19,store,pricing
+"Amazing quality and the order arrived exactly when promised.",positive,2024-01-20,website,delivery
+"The product broke after a week and the return process was frustrating.",negative,2024-01-21,retail,product_quality
+"The service was acceptable and the issue was eventually resolved.",neutral,2024-01-22,customer_service,customer_service
