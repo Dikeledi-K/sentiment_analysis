@@ -9,8 +9,14 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from src.analysis import analyse_dataset
-from src.business_metrics import calculate_product_return_rate, flag_products_for_review, has_unit_totals, returned_mask
+from src.analysis import analyse_dataset, guess_column, read_csv_file
+from src.business_metrics import (
+    calculate_product_return_rate,
+    flag_products_for_review,
+    has_return_info,
+    has_unit_totals,
+    returned_mask,
+)
 from src.issue_classifier import classify_issue
 from src.predict import load_model, predict_text, summarize_predictions
 from src.preprocessing import preprocess_text
@@ -205,7 +211,8 @@ with st.sidebar:
     st.markdown("### Quality operations")
     st.caption("Analysis workspace")
     st.markdown("---")
-    st.metric("Records analyzed", f"{len(st.session_state.analysis_df):,}")
+    # Filled at the end of the script so it reflects an analysis run during this rerun.
+    records_metric = st.empty()
     st.caption("Synthetic demo data only. Validate quality signals with a human analyst.")
 
 navigation_options = [
@@ -292,7 +299,7 @@ elif page == "Upload and Analyse Dataset":
     st.caption("Start with the built-in demonstration data, or upload a CSV with customer feedback and optional product, date, and return fields.")
     if st.button("Analyze built-in demo dataset"):
         try:
-            demo_df = pd.read_csv(SAMPLE_DATA_PATH)
+            demo_df = read_csv_file(SAMPLE_DATA_PATH)
             analysis = analyze_and_store(
                 demo_df,
                 text_column="text",
@@ -307,15 +314,40 @@ elif page == "Upload and Analyse Dataset":
     uploaded_file = st.file_uploader("Choose a CSV file", type=["csv"])
     if uploaded_file is not None:
         try:
-            df = pd.read_csv(uploaded_file)
+            df = read_csv_file(uploaded_file)
             st.write("### Dataset preview")
             st.dataframe(df.head(10), width="stretch")
 
             columns = list(df.columns)
-            text_column = st.selectbox("Select the text column", columns)
-            product_column = st.selectbox("Select product column (optional)", ["None"] + columns)
-            category_column = st.selectbox("Select category column (optional)", ["None"] + columns)
-            date_column = st.selectbox("Select date column (optional)", ["None"] + columns)
+            optional_columns = ["None"] + columns
+
+            def default_index(role: str, options: list[str]) -> int:
+                guess = guess_column(df, role)
+                return options.index(guess) if guess in options else 0
+
+            st.caption("Columns are pre-selected from their names. Check each mapping before running the analysis.")
+            text_column = st.selectbox(
+                "Feedback text column",
+                columns,
+                index=default_index("text", columns),
+                help="The free-text customer comment to classify, for example review_text.",
+            )
+            product_column = st.selectbox(
+                "Product name column (optional)",
+                optional_columns,
+                index=default_index("product", optional_columns),
+                help="The product each comment is about, for example product_name. Not the return reason.",
+            )
+            category_column = st.selectbox(
+                "Product category column (optional)",
+                optional_columns,
+                index=default_index("category", optional_columns),
+            )
+            date_column = st.selectbox(
+                "Date column (optional)",
+                optional_columns,
+                index=default_index("date", optional_columns),
+            )
 
             if st.button("Run analysis"):
                 try:
@@ -332,7 +364,7 @@ elif page == "Upload and Analyse Dataset":
                     result_df = analysis["dataframe"]
 
                     st.success(
-                        f"Analysis complete: {analysis['processed']} records processed, {analysis['skipped']} skipped, {analysis['invalid']} invalid."
+                        f"Analysis complete: {analysis['processed']} records processed, {analysis['skipped']} skipped because the text was empty."
                     )
                     st.dataframe(result_df.head(10), width="stretch")
                     st.download_button(
@@ -356,7 +388,7 @@ elif page == "Quality Dashboard":
         st.caption("Executive summary · based on the currently analysed records")
 
         negative_share = summary["negative_pct"]
-        if "return_status" in result_df.columns:
+        if has_return_info(result_df):
             returned_cases_label = f"{int(returned_mask(result_df).sum()):,}"
         else:
             returned_cases_label = "Not provided"
@@ -371,7 +403,7 @@ elif page == "Quality Dashboard":
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
         kpi1.metric("Feedback analysed", f"{summary['total']:,}")
         kpi2.metric("Negative feedback", f"{negative_share:.1f}%", help="Share of analysed comments predicted as negative")
-        kpi3.metric("Reported return cases", returned_cases_label, help="Rows marked returned/refunded; not a unit return rate")
+        kpi3.metric("Reported return cases", returned_cases_label, help="Rows with return_status returned/refunded or return_requested = Yes; not a unit return rate")
         kpi4.metric("Unit return rate", return_rate_label, help=return_rate_help)
 
         st.markdown("### Quality signals")
@@ -401,13 +433,13 @@ elif page == "Quality Dashboard":
                     heatmap.update_layout(margin={"t": 55, "b": 20}, coloraxis_colorbar_title="Reports")
                     st.plotly_chart(heatmap, width="stretch")
             else:
-                st.info("Select product and category columns when analysing data to show a defect heatmap.")
+                st.info("Select a product name column when analysing data to show a defect heatmap.")
 
         with right:
             if "date" in result_df.columns:
                 trend = result_df.copy()
                 trend["date"] = pd.to_datetime(trend["date"], errors="coerce")
-                if "return_status" in trend.columns:
+                if has_return_info(trend):
                     trend = trend[returned_mask(trend)]
                     trend_label = "Reported return cases"
                 else:
@@ -521,3 +553,5 @@ elif page == "About and Responsible AI":
         TF-IDF gives more importance to words that appear often in a comment but unusually often in the broader dataset, which helps the classifier focus on meaningful vocabulary.
         """
     )
+
+records_metric.metric("Records analyzed", f"{len(st.session_state.analysis_df):,}")
