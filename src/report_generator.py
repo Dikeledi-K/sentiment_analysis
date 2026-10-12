@@ -6,6 +6,8 @@ from datetime import datetime
 
 import pandas as pd
 
+from src.business_metrics import calculate_product_return_rate, has_unit_totals
+
 
 def _safe_pct(part: int, total: int) -> float:
     if total == 0:
@@ -40,12 +42,10 @@ def generate_quality_report(df: pd.DataFrame, analysis_date: str | None = None) 
     else:
         product_negative = pd.Series(dtype=float)
 
-    if {"units_sold", "units_returned"}.intersection(df.columns):
-        sold = pd.to_numeric(df.get("units_sold", pd.Series(0, index=df.index)), errors="coerce").fillna(0)
-        returned = pd.to_numeric(df.get("units_returned", pd.Series(0, index=df.index)), errors="coerce").fillna(0)
-        rate = (returned.sum() / sold.sum()) * 100 if sold.sum() else 0.0
+    if has_unit_totals(df):
+        return_rate_line = f"{calculate_product_return_rate(df)['percentage']:.2f}% (returned units / sold units)"
     else:
-        rate = 0.0
+        return_rate_line = "not provided (add units_sold and units_returned columns)"
 
     negative_comments = df[df["predicted_sentiment"].fillna("neutral").str.lower() == "negative"]["text"].dropna().astype(str).head(3).tolist()
     positive_comments = df[df["predicted_sentiment"].fillna("neutral").str.lower() == "positive"]["text"].dropna().astype(str).head(3).tolist()
@@ -56,7 +56,7 @@ def generate_quality_report(df: pd.DataFrame, analysis_date: str | None = None) 
     report += f"- Positive: {positive} ({_safe_pct(positive, total)}%)\n"
     report += f"- Negative: {negative} ({_safe_pct(negative, total)}%)\n"
     report += f"- Neutral: {neutral} ({_safe_pct(neutral, total)}%)\n"
-    report += f"- Return rate: {rate:.2f}% (returned units / sold units)\n\n"
+    report += f"- Return rate: {return_rate_line}\n\n"
 
     report += "## Issue overview\n"
     for issue_name, count in issue_top.items():
