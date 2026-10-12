@@ -10,12 +10,11 @@ import plotly.express as px
 import streamlit as st
 
 from src.analysis import analyse_dataset
-from src.business_metrics import calculate_return_rate, flag_products_for_review
+from src.business_metrics import calculate_product_return_rate, flag_products_for_review, has_unit_totals, returned_mask
 from src.issue_classifier import classify_issue
 from src.predict import load_model, predict_text, summarize_predictions
 from src.preprocessing import preprocess_text
 from src.report_generator import generate_quality_report
-from train_model import train_and_evaluate_model
 
 ROOT_DIR = Path(__file__).resolve().parent
 PLATFORM_NAME = "Quality & Returns Intelligence"
@@ -24,11 +23,9 @@ SAMPLE_DATA_PATH = ROOT_DIR / "data" / "product_quality_demo.csv"
 METRICS_PATH = ROOT_DIR / "reports" / "model_metrics.json"
 
 
+@st.cache_resource(show_spinner="Loading sentiment model...")
 def ensure_model() -> object:
-    """Ensure the locally trained model exists before serving the app."""
-    if not MODEL_PATH.exists():
-        st.info("Training a fresh model from the product-quality sample dataset...")
-        train_and_evaluate_model(SAMPLE_DATA_PATH, MODEL_PATH, METRICS_PATH)
+    """Load the model once per server process, training it first if no saved model exists."""
     return load_model(MODEL_PATH)
 
 
@@ -56,14 +53,6 @@ st.markdown(
             color: #a9bbd4;
             margin-bottom: 1rem;
             font-size: 1rem;
-        }
-        .panel {
-            background: rgba(17, 25, 38, 0.9);
-            border: 1px solid rgba(146, 168, 196, 0.18);
-            border-radius: 18px;
-            padding: 1.3rem 1.4rem;
-            box-shadow: 0 12px 28px rgba(3, 7, 18, 0.35);
-            margin-bottom: 1.2rem;
         }
         .metric-card {
             background: linear-gradient(135deg, rgba(25, 41, 62, 0.95) 0%, rgba(18, 31, 47, 0.95) 100%);
@@ -158,9 +147,6 @@ st.markdown(
         }
         .stProgress > div > div > div {
             background: linear-gradient(90deg, #5ea4ff 0%, #7dc2ff 100%);
-        }
-        .css-1d391kg, .css-1v0mbdj, .css-17lntkn {
-            color: white;
         }
         h1, h2, h3, h4, p, li, div, span {
             color: #edf5ff;
@@ -260,7 +246,6 @@ if page == "Home / Overview":
     with col3:
         st.markdown("<div class='metric-card'><div class='small-label'>Purpose</div><div style='font-size:1.5rem;font-weight:700;'>Quality & returns intelligence</div></div>", unsafe_allow_html=True)
 
-    st.markdown("<div class='panel'>", unsafe_allow_html=True)
     st.markdown("<div class='section-title' style='font-size:1.2rem;'>Workflow</div>", unsafe_allow_html=True)
     steps = [
         "Load the demo or upload customer and return records.",
@@ -273,10 +258,8 @@ if page == "Home / Overview":
         col = cols[idx % 2]
         with col:
             st.markdown(f"<div class='feature-box'><strong>{idx + 1}.</strong> {step}</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
 
 elif page == "Analyse Single Text":
-    st.markdown("<div class='panel'>", unsafe_allow_html=True)
     st.markdown("<div class='section-title' style='font-size:1.2rem;'>Analyse a single review</div>", unsafe_allow_html=True)
     text_input = st.text_area(
         "Enter a product review, customer comment, or message:",
@@ -303,10 +286,8 @@ elif page == "Analyse Single Text":
                 )
             except Exception as exc:
                 st.error(f"Prediction failed: {exc}")
-    st.markdown("</div>", unsafe_allow_html=True)
 
 elif page == "Upload and Analyse Dataset":
-    st.markdown("<div class='panel'>", unsafe_allow_html=True)
     st.markdown("<div class='section-title' style='font-size:1.2rem;'>Dataset Explorer</div>", unsafe_allow_html=True)
     st.caption("Start with the built-in demonstration data, or upload a CSV with customer feedback and optional product, date, and return fields.")
     if st.button("Analyze built-in demo dataset"):
@@ -328,7 +309,7 @@ elif page == "Upload and Analyse Dataset":
         try:
             df = pd.read_csv(uploaded_file)
             st.write("### Dataset preview")
-            st.dataframe(df.head(10), use_container_width=True)
+            st.dataframe(df.head(10), width="stretch")
 
             columns = list(df.columns)
             text_column = st.selectbox("Select the text column", columns)
@@ -353,7 +334,7 @@ elif page == "Upload and Analyse Dataset":
                     st.success(
                         f"Analysis complete: {analysis['processed']} records processed, {analysis['skipped']} skipped, {analysis['invalid']} invalid."
                     )
-                    st.dataframe(result_df.head(10), use_container_width=True)
+                    st.dataframe(result_df.head(10), width="stretch")
                     st.download_button(
                         label="Download analysed results as CSV",
                         data=result_df.to_csv(index=False),
@@ -364,10 +345,8 @@ elif page == "Upload and Analyse Dataset":
                     st.error(str(exc))
         except Exception as exc:
             st.error(f"The CSV file could not be read: {exc}")
-    st.markdown("</div>", unsafe_allow_html=True)
 
 elif page == "Quality Dashboard":
-    st.markdown("<div class='panel'>", unsafe_allow_html=True)
     st.markdown("<div class='section-title' style='font-size:1.2rem;'>Operations overview</div>", unsafe_allow_html=True)
     if st.session_state.analysis_df.empty:
         st.info("Analyze the built-in demo dataset or upload your own data in Dataset Explorer to populate the dashboard.")
@@ -378,26 +357,21 @@ elif page == "Quality Dashboard":
 
         negative_share = summary["negative_pct"]
         if "return_status" in result_df.columns:
-            status = result_df["return_status"].fillna("").astype(str).str.strip().str.lower()
-            returned_cases = int(status.isin(["returned", "refunded", "return complete"]).sum())
+            returned_cases_label = f"{int(returned_mask(result_df).sum()):,}"
         else:
-            returned_cases = int(pd.to_numeric(result_df.get("units_returned", pd.Series(dtype=float)), errors="coerce").fillna(0).sum())
+            returned_cases_label = "Not provided"
 
-        if {"units_sold", "units_returned"}.issubset(result_df.columns):
-            volume_data = result_df.drop_duplicates("product_name") if "product_name" in result_df.columns else result_df
-            return_metrics = calculate_return_rate(volume_data)
-            return_rate_value = return_metrics["percentage"]
-            return_rate_label = f"{return_rate_value:.2f}%"
+        if has_unit_totals(result_df):
+            return_rate_label = f"{calculate_product_return_rate(result_df)['percentage']:.2f}%"
             return_rate_help = "Distinct product totals: returned units divided by sold units"
         else:
-            return_rate_value = None
             return_rate_label = "Not provided"
             return_rate_help = "Add units_sold and units_returned columns to calculate a rate"
 
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
         kpi1.metric("Feedback analysed", f"{summary['total']:,}")
         kpi2.metric("Negative feedback", f"{negative_share:.1f}%", help="Share of analysed comments predicted as negative")
-        kpi3.metric("Reported return cases", f"{returned_cases:,}", help="Rows marked returned/refunded; not a unit return rate")
+        kpi3.metric("Reported return cases", returned_cases_label, help="Rows marked returned/refunded; not a unit return rate")
         kpi4.metric("Unit return rate", return_rate_label, help=return_rate_help)
 
         st.markdown("### Quality signals")
@@ -425,7 +399,7 @@ elif page == "Quality Dashboard":
                         title="Defect reports by product",
                     )
                     heatmap.update_layout(margin={"t": 55, "b": 20}, coloraxis_colorbar_title="Reports")
-                    st.plotly_chart(heatmap, use_container_width=True)
+                    st.plotly_chart(heatmap, width="stretch")
             else:
                 st.info("Select product and category columns when analysing data to show a defect heatmap.")
 
@@ -434,8 +408,7 @@ elif page == "Quality Dashboard":
                 trend = result_df.copy()
                 trend["date"] = pd.to_datetime(trend["date"], errors="coerce")
                 if "return_status" in trend.columns:
-                    status = trend["return_status"].fillna("").astype(str).str.strip().str.lower()
-                    trend = trend[status.isin(["returned", "refunded", "return complete"])]
+                    trend = trend[returned_mask(trend)]
                     trend_label = "Reported return cases"
                 else:
                     trend_label = "Dated feedback records"
@@ -455,14 +428,14 @@ elif page == "Quality Dashboard":
                     )
                     trend_chart.update_traces(line_color="#f0b45b", line_width=3)
                     trend_chart.update_layout(margin={"t": 55, "b": 20})
-                    st.plotly_chart(trend_chart, use_container_width=True)
+                    st.plotly_chart(trend_chart, width="stretch")
             else:
                 st.info("Select a date column when analysing data to show a returns trend.")
 
         st.markdown("### Products to investigate")
         flagged = flag_products_for_review(result_df)
         if flagged:
-            st.dataframe(pd.DataFrame(flagged), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(flagged), width="stretch", hide_index=True)
         else:
             st.success("No products currently meet the review thresholds in this dataset.")
 
@@ -472,14 +445,13 @@ elif page == "Quality Dashboard":
             filtered_df = result_df[result_df["predicted_sentiment"].str.lower().isin(filter_values)].copy()
             if search_term:
                 filtered_df = filtered_df[filtered_df["text"].str.lower().str.contains(search_term.lower(), na=False)]
-            st.dataframe(filtered_df, use_container_width=True)
+            st.dataframe(filtered_df, width="stretch")
 
         if st.button("Clear analysis"):
             reset_analysis()
-    st.markdown("</div>", unsafe_allow_html=True)
+            st.rerun()
 
 elif page == "Model Performance":
-    st.markdown("<div class='panel'>", unsafe_allow_html=True)
     st.markdown("<div class='section-title' style='font-size:1.2rem;'>Model performance</div>", unsafe_allow_html=True)
     if METRICS_PATH.exists():
         with open(METRICS_PATH, "r", encoding="utf-8") as metrics_file:
@@ -493,19 +465,23 @@ elif page == "Model Performance":
             st.metric("Recall", f"{metrics.get('recall', 0):.4f}")
         with col4:
             st.metric("F1-score", f"{metrics.get('f1', 0):.4f}")
+        if "cv_f1_mean" in metrics:
+            st.caption(
+                f"Held-out test set: {metrics.get('test_size', '?')} records. "
+                f"Cross-validated macro F1 on the training split: {metrics['cv_f1_mean']:.4f} (± {metrics['cv_f1_std']:.4f})."
+            )
         st.text(metrics.get("classification_report", "Classification report unavailable."))
+        labels = metrics.get("labels", ["positive", "negative", "neutral"])
         confusion = pd.DataFrame(
-            metrics.get("confusion_matrix", [[0, 0, 0], [0, 0, 0], [0, 0, 0]]),
-            index=["positive", "negative", "neutral"],
-            columns=["positive", "negative", "neutral"],
+            metrics.get("confusion_matrix", [[0] * len(labels) for _ in labels]),
+            index=[f"actual {label}" for label in labels],
+            columns=[f"predicted {label}" for label in labels],
         )
         st.dataframe(confusion)
     else:
         st.info("No metrics file is present yet. Train the model first to generate performance details.")
-    st.markdown("</div>", unsafe_allow_html=True)
 
 elif page == "Insights Report":
-    st.markdown("<div class='panel'>", unsafe_allow_html=True)
     st.markdown("<div class='section-title' style='font-size:1.2rem;'>Insights report</div>", unsafe_allow_html=True)
     if st.session_state.analysis_df.empty:
         st.info("Generate a dataset analysis before producing a report.")
@@ -518,10 +494,8 @@ elif page == "Insights Report":
             file_name="product_quality_insights_report.md",
             mime="text/markdown",
         )
-    st.markdown("</div>", unsafe_allow_html=True)
 
 elif page == "About and Responsible AI":
-    st.markdown("<div class='panel'>", unsafe_allow_html=True)
     st.markdown("<div class='section-title' style='font-size:1.2rem;'>About the Product Quality Platform</div>", unsafe_allow_html=True)
     st.markdown(
         """
@@ -547,4 +521,3 @@ elif page == "About and Responsible AI":
         TF-IDF gives more importance to words that appear often in a comment but unusually often in the broader dataset, which helps the classifier focus on meaningful vocabulary.
         """
     )
-    st.markdown("</div>", unsafe_allow_html=True)
