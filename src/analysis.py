@@ -12,6 +12,43 @@ from src.predict import load_model, predict_texts, summarize_predictions
 from src.preprocessing import preprocess_text
 
 
+COLUMN_HINTS = {
+    "text": ["text", "review_text", "customer_feedback", "feedback", "comment", "comments", "review", "message"],
+    "product": ["product_name", "product", "item_name", "item"],
+    "category": ["category", "product_category", "item_category"],
+    "date": ["date", "review_date", "feedback_date", "order_date", "created_at"],
+}
+
+
+def guess_column(df: pd.DataFrame, role: str) -> str | None:
+    """Suggest the column that best fits a role ("text", "product", "category" or "date"), or None."""
+    by_lower_name = {str(column).strip().lower(): column for column in df.columns}
+    for hint in COLUMN_HINTS[role]:
+        if hint in by_lower_name:
+            return by_lower_name[hint]
+
+    if role == "text":
+        # Fall back to the column with the longest average string, which is usually the free-text field.
+        lengths = {
+            column: df[column].dropna().astype(str).str.len().mean()
+            for column in df.select_dtypes(include=["object", "string"]).columns
+        }
+        lengths = {column: length for column, length in lengths.items() if pd.notna(length)}
+        if lengths:
+            return max(lengths, key=lengths.get)
+    return None
+
+
+def read_csv_file(source: Any) -> pd.DataFrame:
+    """Read a CSV path or upload, falling back to Windows-1252 for files exported from Excel."""
+    try:
+        return pd.read_csv(source, encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        if hasattr(source, "seek"):
+            source.seek(0)
+        return pd.read_csv(source, encoding="cp1252")
+
+
 def summarize_sentiment_counts(df: pd.DataFrame) -> dict:
     """Return total counts and percentages for sentiment labels."""
     if "predicted_sentiment" not in df.columns:
@@ -49,13 +86,26 @@ def analyse_dataset(
     skipped_count = int((~valid).sum())
 
     result_df = df.loc[valid].copy()
-    result_df["text"] = cleaned_text[valid]
-    predictions = predict_texts(result_df["text"].tolist(), model=model)
+    if text_column != "text" and "text" in result_df.columns:
+        result_df = result_df.rename(columns={"text": "text_original"})
+    # Keep the customer's original wording for tables and reports; the model gets the cleaned text.
+    result_df["text"] = df.loc[valid, text_column].astype(str).str.strip()
+    predictions = predict_texts(cleaned_text[valid].tolist(), model=model)
     result_df["predicted_sentiment"] = [prediction["label"] for prediction in predictions]
     result_df["confidence"] = [prediction["confidence"] for prediction in predictions]
     result_df["issue_category"] = result_df["text"].map(classify_issue)
 
     # Copy user-selected columns to the standard names the dashboard and report expect.
+    # An uploaded column that already uses a standard name but was not selected for it is kept
+    # under "<name>_original" rather than silently overwritten.
+    for standard_name, selected in (
+        ("date", date_column),
+        ("source", source_column),
+        ("category", category_column),
+        ("product_name", product_column),
+    ):
+        if selected and selected in result_df.columns and selected != standard_name and standard_name in result_df.columns:
+            result_df = result_df.rename(columns={standard_name: f"{standard_name}_original"})
     if date_column and date_column in result_df.columns:
         result_df["date"] = pd.to_datetime(result_df[date_column], errors="coerce")
     if source_column and source_column in result_df.columns:
