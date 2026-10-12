@@ -1,6 +1,6 @@
 import pandas as pd
 
-from src.business_metrics import calculate_product_return_rate, flag_products_for_review, returned_mask
+from src.business_metrics import calculate_product_return_rate, flag_products_for_review, has_return_info, returned_mask
 
 
 def test_product_return_rate_counts_each_product_total_once():
@@ -17,6 +17,12 @@ def test_product_return_rate_counts_each_product_total_once():
 def test_returned_mask_matches_known_statuses():
     df = pd.DataFrame({"return_status": ["Returned", " refunded ", "open", None]})
     assert returned_mask(df).tolist() == [True, True, False, False]
+
+
+def test_returned_mask_reads_yes_no_return_flag():
+    df = pd.DataFrame({"return_requested": ["Yes", "No", "yes", None]})
+    assert has_return_info(df)
+    assert returned_mask(df).tolist() == [True, False, True, False]
 
 
 def test_flags_ignore_needs_review_rows():

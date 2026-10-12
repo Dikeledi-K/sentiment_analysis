@@ -6,14 +6,25 @@ import pandas as pd
 
 RETURNED_STATUSES = {"returned", "refunded", "return complete"}
 NON_ISSUE_CATEGORIES = {"other", "needs review"}
+RETURN_FLAG_COLUMNS = ("return_requested", "returned", "is_returned")
+TRUE_VALUES = {"yes", "y", "true", "1"}
+
+
+def has_return_info(df: pd.DataFrame) -> bool:
+    """True when the data has a return status column or a yes/no return flag column."""
+    return "return_status" in df.columns or any(column in df.columns for column in RETURN_FLAG_COLUMNS)
 
 
 def returned_mask(df: pd.DataFrame, status_col: str = "return_status") -> pd.Series:
-    """Return a boolean mask of rows whose return status marks a completed return."""
-    if status_col not in df.columns:
-        return pd.Series(False, index=df.index)
-    status = df[status_col].fillna("").astype(str).str.strip().str.lower()
-    return status.isin(RETURNED_STATUSES)
+    """Return a boolean mask of rows marked as returned, by status text or a yes/no return flag."""
+    mask = pd.Series(False, index=df.index)
+    if status_col in df.columns:
+        status = df[status_col].fillna("").astype(str).str.strip().str.lower()
+        mask |= status.isin(RETURNED_STATUSES)
+    for column in RETURN_FLAG_COLUMNS:
+        if column in df.columns:
+            mask |= df[column].fillna("").astype(str).str.strip().str.lower().isin(TRUE_VALUES)
+    return mask
 
 
 def has_unit_totals(df: pd.DataFrame) -> bool:
@@ -50,31 +61,6 @@ def calculate_return_rate(df: pd.DataFrame, units_sold_col: str = "units_sold", 
         "sold_units": sold_total,
         "records_used": int(valid.sum()),
     }
-
-
-def summarize_quality_metrics(df: pd.DataFrame) -> dict:
-    """Compute a compact quality summary from a dataset with sentiment and issue columns."""
-    if df.empty:
-        return {
-            "total_records": 0,
-            "negative_count": 0,
-            "positive_count": 0,
-            "neutral_count": 0,
-            "issue_counts": {},
-            "return_rate": 0.0,
-        }
-
-    sentiment = df["predicted_sentiment"].fillna("neutral").str.lower()
-    issue_counts = df["issue_category"].fillna("Needs Review").astype(str).str.lower().value_counts().to_dict()
-    summary = {
-        "total_records": int(len(df)),
-        "negative_count": int((sentiment == "negative").sum()),
-        "positive_count": int((sentiment == "positive").sum()),
-        "neutral_count": int((sentiment == "neutral").sum()),
-        "issue_counts": {str(k): v for k, v in issue_counts.items()},
-        "return_rate": calculate_return_rate(df)["percentage"],
-    }
-    return summary
 
 
 def flag_products_for_review(df: pd.DataFrame, negative_threshold: float = 0.4, min_records: int = 2) -> list[dict]:
