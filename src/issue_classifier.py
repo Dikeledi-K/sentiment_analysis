@@ -138,7 +138,3 @@ def classify_issue(text: Any) -> str:
             return issue_name
     return "Other"
 
-
-def classify_issue_series(values) -> list[str]:
-    """Apply classification across a list-like input."""
-    return [classify_issue(value) for value in values]

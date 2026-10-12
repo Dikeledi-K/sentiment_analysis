@@ -105,7 +105,7 @@ def generate_quality_report(df: pd.DataFrame, analysis_date: str | None = None) 
 
 
 def generate_insights_report(df: pd.DataFrame, analysis_date: str | None = None) -> str:
-    """Backward-compatible summary report expected by the existing tests and app."""
+    """Short sentiment-only summary report; the app uses generate_quality_report."""
     if df is None or df.empty:
         return "# Quality & Returns Intelligence Report\n\nNo analysed data was available to generate a report."
 
