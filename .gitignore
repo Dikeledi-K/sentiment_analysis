@@ -8,6 +8,6 @@ venv/
 *.pkl
 .DS_Store
 .env
-.streamlit/
+.streamlit/secrets.toml
 models/*.joblib
 reports/*.md

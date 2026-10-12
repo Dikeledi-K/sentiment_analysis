@@ -1,0 +1,27 @@
+# Visual theme for the Quality & Returns Intelligence app.
+# Brand colours are mirrored in src/ui.py; change both together when rebranding.
+
+[theme]
+base = "light"
+primaryColor = "#0E7C7B"
+backgroundColor = "#F6F5F1"
+secondaryBackgroundColor = "#ECEAE3"
+textColor = "#1C2B33"
+linkColor = "#0E7C7B"
+borderColor = "#DDD9CE"
+showWidgetBorder = true
+baseRadius = "0.7rem"
+font = "sans-serif"
+headingFont = "serif"
+dataframeHeaderBackgroundColor = "#ECEAE3"
+chartCategoricalColors = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
+
+[theme.sidebar]
+backgroundColor = "#12262E"
+secondaryBackgroundColor = "#1C3640"
+textColor = "#E6EEF0"
+borderColor = "#2A4752"
+primaryColor = "#4FD1C5"
+
+[client]
+toolbarMode = "minimal"
