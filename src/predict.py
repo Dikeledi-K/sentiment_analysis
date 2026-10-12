@@ -9,7 +9,6 @@ import joblib
 import pandas as pd
 
 from src.preprocessing import preprocess_text
-from train_model import train_and_evaluate_model
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_MODEL_PATH = ROOT_DIR / "models" / "sentiment_model.joblib"
@@ -21,9 +20,9 @@ def load_model(model_path: str | Path = DEFAULT_MODEL_PATH):
     if not path.exists():
         if path != DEFAULT_MODEL_PATH:
             raise FileNotFoundError(f"Model file not found at: {path}")
-        fallback_data = Path(__file__).resolve().parent.parent / "data" / "product_quality_demo.csv"
-        fallback_metrics = Path(__file__).resolve().parent.parent / "reports" / "model_metrics.json"
-        train_and_evaluate_model(fallback_data, path, fallback_metrics)
+        from train_model import train_and_evaluate_model
+
+        train_and_evaluate_model(model_path=path)
     return joblib.load(path)
 
 
@@ -46,23 +45,32 @@ def predict_text(text: Any, model: Any | None = None) -> dict:
     cleaned = preprocess_text(text)
     if not cleaned:
         raise ValueError("Text is empty. Please enter a valid review before analysing.")
+    return predict_texts([cleaned], model=model)[0]
 
-    model_to_use = model or load_model()
-    prediction = model_to_use.predict([cleaned])[0]
-    label = _normalize_label(prediction)
 
-    probabilities = None
+def predict_texts(texts: list[str], model: Any | None = None) -> list[dict]:
+    """Predict labels and confidence scores for many cleaned texts in one model call."""
+    if not texts:
+        return []
+
+    model_to_use = load_model() if model is None else model
     if hasattr(model_to_use, "predict_proba"):
-        probabilities = model_to_use.predict_proba([cleaned])[0]
-        confidence = float(max(probabilities)) if len(probabilities) else 0.0
+        probabilities = model_to_use.predict_proba(texts)
+        classes = model_to_use.classes_
+        predictions = [classes[row.argmax()] for row in probabilities]
+        confidences = [float(row.max()) for row in probabilities]
     else:
-        confidence = 0.0
+        predictions = list(model_to_use.predict(texts))
+        confidences = [0.0] * len(predictions)
 
-    return {
-        "label": label,
-        "confidence": round(confidence, 4),
-        "raw_prediction": prediction,
-    }
+    return [
+        {
+            "label": _normalize_label(prediction),
+            "confidence": round(confidence, 4),
+            "raw_prediction": prediction,
+        }
+        for prediction, confidence in zip(predictions, confidences)
+    ]
 
 
 def summarize_predictions(df: pd.DataFrame) -> dict:

@@ -6,9 +6,9 @@ from typing import Any
 
 import pandas as pd
 
-from src.business_metrics import calculate_return_rate, flag_products_for_review
+from src.business_metrics import calculate_product_return_rate, flag_products_for_review, has_unit_totals
 from src.issue_classifier import classify_issue
-from src.predict import predict_text, summarize_predictions
+from src.predict import load_model, predict_texts, summarize_predictions
 from src.preprocessing import preprocess_text
 
 
@@ -28,7 +28,7 @@ def analyse_dataset(
     category_column: str | None = None,
     product_column: str | None = None,
 ) -> dict:
-    """Process a dataset by validating text rows and predicting sentiment."""
+    """Clean text rows, skip empty ones, and add sentiment, confidence, and issue columns."""
     if df is None or df.empty:
         return {
             "processed": 0,
@@ -38,65 +38,43 @@ def analyse_dataset(
             "summary": summarize_predictions(pd.DataFrame()),
         }
 
-    if model is None:
-        from src.predict import load_model
-        model = load_model()
-
     if text_column not in df.columns:
         raise ValueError(f"Text column '{text_column}' was not found in the uploaded CSV file.")
 
-    cleaned_df = df.copy()
-    processed_rows = []
-    processed_count = 0
-    skipped_count = 0
-    invalid_count = 0
+    if model is None:
+        model = load_model()
 
-    for _, row in cleaned_df.iterrows():
-        raw_value = row.get(text_column)
-        cleaned_text = preprocess_text(raw_value)
+    cleaned_text = df[text_column].map(preprocess_text)
+    valid = cleaned_text != ""
+    skipped_count = int((~valid).sum())
 
-        if not cleaned_text:
-            skipped_count += 1
-            continue
+    result_df = df.loc[valid].copy()
+    result_df["text"] = cleaned_text[valid]
+    predictions = predict_texts(result_df["text"].tolist(), model=model)
+    result_df["predicted_sentiment"] = [prediction["label"] for prediction in predictions]
+    result_df["confidence"] = [prediction["confidence"] for prediction in predictions]
+    result_df["issue_category"] = result_df["text"].map(classify_issue)
 
-        try:
-            prediction = predict_text(cleaned_text, model=model)
-            issue_category = classify_issue(cleaned_text)
-            record = row.to_dict()
-            record["text"] = cleaned_text
-            record["predicted_sentiment"] = prediction["label"]
-            record["confidence"] = prediction["confidence"]
-            record["issue_category"] = issue_category
-            if product_column and product_column in record:
-                record["product_name"] = record.get(product_column)
-            if category_column and category_column in record:
-                record["category"] = record.get(category_column)
-            processed_rows.append(record)
-            processed_count += 1
-        except Exception:
-            invalid_count += 1
-
-    result_df = pd.DataFrame(processed_rows)
+    # Copy user-selected columns to the standard names the dashboard and report expect.
     if date_column and date_column in result_df.columns:
-        result_df[date_column] = pd.to_datetime(result_df[date_column], errors="coerce")
+        result_df["date"] = pd.to_datetime(result_df[date_column], errors="coerce")
     if source_column and source_column in result_df.columns:
-        result_df[source_column] = result_df[source_column].fillna("Unknown")
+        result_df["source"] = result_df[source_column].fillna("Unknown")
     if category_column and category_column in result_df.columns:
         result_df["category"] = result_df[category_column].fillna("Unspecified")
     if product_column and product_column in result_df.columns:
         result_df["product_name"] = result_df[product_column].fillna("Unknown product")
-    if "issue_category" not in result_df.columns:
-        result_df["issue_category"] = "Needs Review"
+    result_df = result_df.reset_index(drop=True)
 
     summary = summarize_predictions(result_df)
-    summary["issue_counts"] = result_df["issue_category"].fillna("Needs Review").value_counts().to_dict()
-    summary["return_rate"] = calculate_return_rate(result_df)["percentage"] if {"units_sold", "units_returned"}.intersection(result_df.columns) else 0.0
+    summary["issue_counts"] = result_df["issue_category"].value_counts().to_dict()
+    summary["return_rate"] = calculate_product_return_rate(result_df)["percentage"] if has_unit_totals(result_df) else None
     summary["flags"] = flag_products_for_review(result_df)
 
     return {
-        "processed": processed_count,
+        "processed": len(result_df),
         "skipped": skipped_count,
-        "invalid": invalid_count,
+        "invalid": 0,
         "dataframe": result_df,
         "summary": summary,
     }
