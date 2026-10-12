@@ -1,24 +1,29 @@
 {
-  "accuracy": 0.2,
-  "precision": 0.0833,
-  "recall": 0.3333,
-  "f1": 0.1333,
-  "classification_report": "              precision    recall  f1-score   support\n\n    negative     0.0000    0.0000    0.0000         2\n     neutral     0.2500    1.0000    0.4000         1\n    positive     0.0000    0.0000    0.0000         2\n\n    accuracy                         0.2000         5\n   macro avg     0.0833    0.3333    0.1333         5\nweighted avg     0.0500    0.2000    0.0800         5\n",
+  "accuracy": 0.75,
+  "precision": 0.7566,
+  "recall": 0.7485,
+  "f1": 0.7456,
+  "cv_f1_mean": 0.5759,
+  "cv_f1_std": 0.0774,
+  "train_size": 94,
+  "test_size": 32,
+  "sklearn_version": "1.9.1",
+  "classification_report": "              precision    recall  f1-score   support\n\n    negative     0.7778    0.6364    0.7000        11\n     neutral     0.7143    0.9091    0.8000        11\n    positive     0.7778    0.7000    0.7368        10\n\n    accuracy                         0.7500        32\n   macro avg     0.7566    0.7485    0.7456        32\nweighted avg     0.7560    0.7500    0.7459        32\n",
   "confusion_matrix": [
     [
-      0,
+      7,
       1,
-      1
+      2
     ],
     [
-      0,
-      0,
+      2,
+      7,
       2
     ],
     [
       0,
-      0,
-      1
+      1,
+      10
     ]
   ],
   "labels": [

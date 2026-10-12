@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 
 import pandas as pd
@@ -17,6 +18,8 @@ def clean_text(text: Any) -> str:
     if not cleaned:
         return ""
 
+    # Fold accented characters to ASCII so "café" becomes "cafe" instead of "caf".
+    cleaned = unicodedata.normalize("NFKD", cleaned).encode("ascii", "ignore").decode("ascii")
     cleaned = cleaned.lower()
     cleaned = re.sub(r"https?://\S+|www\.\S+", " ", cleaned)
     cleaned = re.sub(r"[^a-z0-9\s]", " ", cleaned)

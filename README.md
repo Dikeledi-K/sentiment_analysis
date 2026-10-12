@@ -30,7 +30,8 @@ The platform is a decision-support tool. Model predictions and keyword categorie
 ```text
 app.py                         Streamlit application and dashboard pages
 train_model.py                 Train and evaluate the sentiment model
-data/product_quality_demo.csv  Synthetic labelled product-quality data
+data/product_quality_demo.csv  Synthetic product-quality and returns data for the dashboard demo
+data/training_reviews.csv      Synthetic labelled reviews used to train the sentiment model
 src/analysis.py                CSV analysis and prediction orchestration
 src/business_metrics.py        Return metrics and product review flags
 src/issue_classifier.py        Keyword-based issue categories
@@ -111,17 +112,17 @@ The unit return rate is calculated as returned units divided by sold units. When
 
 ### Retraining the sentiment model
 
-Training data must have a `text` column and a `sentiment` label column. Sentiment labels should be `positive`, `neutral`, or `negative`. The demo file already has these fields.
+Training data must have a `text` column and a `sentiment` label column. Sentiment labels must be `positive`, `neutral`, or `negative`; other labels are rejected. The default training file is `data/training_reviews.csv`. It is kept separate from the dashboard demo data so the demo shows how the model handles feedback it has not seen.
 
 ## Model and analysis approach
 
-The sentiment pipeline uses text cleaning, TF-IDF features with unigrams and bigrams, and a class-balanced logistic regression classifier. It reports accuracy, macro precision, macro recall, macro F1, a classification report, and a confusion matrix.
+The sentiment pipeline uses text cleaning, TF-IDF features with unigrams and bigrams, and a class-balanced logistic regression classifier. It reports accuracy, macro precision, macro recall, macro F1, a classification report, and a confusion matrix on a held-out 25% test split, plus a 5-fold cross-validated macro F1 on the training split. The training set is small (about 125 synthetic reviews), so treat these scores as rough indicators.
 
 Issue categories are assigned by transparent keyword rules in `src/issue_classifier.py`; this is not a trained defect-diagnosis model. Product review flags use minimum record counts and thresholds for negative sentiment or non-`Other` issue signals. These are triage indicators, not causal conclusions.
 
 ## Train the model
 
-Train with the included labelled demo dataset:
+Train with the included labelled training dataset:
 
 ```bash
 python train_model.py
