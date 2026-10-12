@@ -29,6 +29,8 @@ The platform is a decision-support tool. Model predictions and keyword categorie
 
 ```text
 app.py                         Streamlit application and dashboard pages
+.streamlit/config.toml         Theme: page, sidebar, and accent colours and fonts
+src/ui.py                      Shared colours, page styles, chart styling, and HTML helpers
 train_model.py                 Train and evaluate the sentiment model
 data/product_quality_demo.csv  Synthetic product-quality and returns data for the dashboard demo
 data/training_reviews.csv      Synthetic labelled reviews used to train the sentiment model
@@ -87,24 +89,39 @@ The trained model file is not stored in the repository. On the first run, if `mo
 
 | Tab | What it does |
 | --- | --- |
-| **Overview** | Summary of the model and the analysis workflow |
-| **Feedback** | Classify a single comment: sentiment, model confidence, and likely issue category |
-| **Dataset** | Run the built-in demo dataset or upload your own CSV |
-| **Quality** | Executive metrics, defect heatmap, monthly return trend, products to investigate, and a searchable table of analysed feedback |
-| **Model** | Accuracy, precision, recall, F1, cross-validated F1, classification report, and confusion matrix |
-| **Reports** | Generated Markdown insights report with a download button |
+The tabs along the top follow the workflow. The numbered tabs are the three steps, and a progress bar beneath them ticks each step off as you complete it.
+
+| Tab | What it does |
+| --- | --- |
+| **Overview** | Introduction, with **▶ Try with demo data** (analyses the demo and opens the dashboard in one click) and **Upload your CSV** |
+| **1 · Load data** | Analyse the built-in demo dataset or upload and map your own CSV; shows the current analysis with a CSV download |
+| **2 · Quality** | Headline metrics, sentiment mix, top defect themes, a defect heatmap by product, the monthly return trend, products to investigate, and a searchable table of analysed feedback |
+| **3 · Report** | Preview of the Markdown insights report, with report and CSV downloads |
+| **Try a comment** | Classify one comment for sentiment, model confidence, and likely issue; includes example comments |
+| **Model** | Accuracy, precision, recall, F1, cross-validated F1, a confusion matrix, and the full classification report |
 | **About** | How the model works and responsible-use notes |
+
+The sidebar shows how many records are loaded and where they came from, with a one-click **Load demo data** or **Clear analysis**.
 
 ### Analysing a dataset
 
-1. Open **Dataset**.
-2. Click **Analyze built-in demo dataset**, or choose a CSV file with **Choose a CSV file**.
-3. For an uploaded file, check the column dropdowns. They are pre-selected from the column names (see the table below). Make sure **Product name column** points at the product, not at a field such as `return_reason`.
-4. Click **Run analysis**. A preview of the results and a **Download analysed results as CSV** button appear.
-5. Open **Quality** to review the metrics, charts, and flagged products.
-6. Open **Reports** to read and download the Markdown report.
+1. Open **1 · Load data**.
+2. Click **▶ Analyze built-in demo dataset**, or drop a CSV into **Upload your own CSV**.
+3. For an uploaded file, check the dropdowns under **Map the columns**. They are pre-selected from the column names (see the table below). Make sure **Product name column** points at the product, not at a field such as `return_reason`.
+4. Click **Run analysis**. A **Current analysis** panel appears with record counts, a preview, and **Download analysed CSV**.
+5. Click **Next: review quality →** to open the dashboard.
+6. Click **Next: build the report →** to preview and download the Markdown report.
 
-Uploading a file does not start the analysis; click **Run analysis** after checking the columns. Results stay available while the browser session is open. **Clear analysis** at the bottom of **Quality** removes them.
+Uploading a file does not start the analysis; click **Run analysis** after checking the columns. Results stay available while the browser session is open. **Clear analysis** in the sidebar or on **1 · Load data** removes them.
+
+### Customising the look
+
+Colours and fonts live in two places:
+
+- `.streamlit/config.toml` sets the Streamlit theme: page background, text, accent (`primaryColor`), borders, corner radius, fonts, and the dark sidebar.
+- `src/ui.py` mirrors the brand colours for the custom page elements (brand bar, hero, step tracker, cards) and holds the chart colours and the shared chart style (`style_figure`).
+
+To rebrand, change the accent and background colours in both files. Chart colours are separate on purpose. Sentiment uses blue for positive, gray for neutral, and red for negative, a set checked for colour-blind readability. Magnitudes such as heatmaps use a single blue scale. Charts that need a new chart type can reuse `ui.style_figure` and `ui.show_chart` so they match the rest of the dashboard.
 
 ## CSV data guide
 
