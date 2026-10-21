@@ -30,8 +30,8 @@ SEQUENTIAL_BLUE = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f
 
 _CSS = f"""
 <style>
-.block-container {{ padding-top: 1.4rem; padding-bottom: 3rem; max-width: 1240px; }}
-@media (max-width: 640px) {{ .block-container {{ padding-top: 3.6rem; }} .hero-title {{ font-size: 1.8rem; }} }}
+/* Leave room for Streamlit's fixed top toolbar (Share, GitHub, etc.) so the brand header isn't hidden behind it. */
+.block-container {{ padding-top: 4.25rem; padding-bottom: 3rem; max-width: 1240px; }}
 
 /* Example chips on the single-comment page */
 .st-key-examples button {{ border-radius: 999px; padding: 0.25rem 0.9rem; min-height: 0; background: {SURFACE}; }}
@@ -80,9 +80,9 @@ h1, h2, h3 {{ letter-spacing: -0.01em; }}
 
 /* Hero */
 .st-key-hero {{ background: radial-gradient(circle at 85% 15%, rgba(242,165,65,0.35) 0%, rgba(242,165,65,0) 40%),
-  linear-gradient(135deg, {TEAL_DARK} 0%, #0E4D52 55%, {TEAL} 100%); border-radius: 20px; padding: 2.4rem 2.4rem 2rem; }}
+  linear-gradient(135deg, {TEAL_DARK} 0%, #0E4D52 55%, {TEAL} 100%); border-radius: 20px; padding: clamp(1.4rem, 2.6vw, 2.4rem); }}
 .st-key-hero h1, .st-key-hero p, .st-key-hero span, .st-key-hero li {{ color: #F4F8F8; }}
-.hero-title {{ font-family: "Source Serif", "Source Serif Pro", Georgia, serif; font-size: 2.3rem; font-weight: 700; line-height: 1.15;
+.hero-title {{ font-family: "Source Serif", "Source Serif Pro", Georgia, serif; font-size: clamp(1.6rem, 2.6vw, 2.3rem); font-weight: 700; line-height: 1.15;
   color: #fff; margin: 0 0 0.6rem; max-width: 760px; }}
 .hero-title em {{ font-style: normal; color: {AMBER}; }}
 .hero-sub {{ font-size: 1.05rem; color: #D5E4E4; max-width: 680px; margin-bottom: 1.2rem; }}
